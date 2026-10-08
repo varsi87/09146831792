@@ -41,6 +41,8 @@ textarea{min-height:70px;font-family:monospace;font-size:0.75rem;direction:ltr;t
 .owner{color:#a78bfa;font-size:0.85rem;font-weight:700}
 .note{font-size:0.78rem;color:var(--muted);margin-top:10px;padding:10px;background:rgba(245,158,11,0.1);border-radius:8px;border-right:3px solid #f59e0b}
 </style>
+<!-- کتابخانه استاندارد برای تولید بارکد آفلاین و بدون خطا -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
 </head>
 <body>
 <div class="wrap">
@@ -167,4 +169,145 @@ textarea{min-height:70px;font-family:monospace;font-size:0.75rem;direction:ltr;t
   function remainingDays(cfg) {
     if (!cfg) return 0;
     var endMs = null;
-    if (cfg.expiresAt) endMs = new Date(cfg.expiresAt).getTime
+    if (cfg.expiresAt) endMs = new Date(cfg.expiresAt).getTime();
+    else if (cfg.createdAt && cfg.days) endMs = new Date(cfg.createdAt).getTime() + (Number(cfg.days)||0)*86400000;
+    else return Number(cfg.days)||0;
+    var left = Math.ceil((endMs - Date.now()) / 86400000);
+    return left > 0 ? left : 0;
+  }
+  function isActive(cfg) {
+    if (!cfg || cfg.inSub === false) return false;
+    if (remainingDays(cfg) <= 0) return false;
+    return Math.max(0, (Number(cfg.gb)||0) - (Number(cfg.usedGB)||0)) > 0;
+  }
+
+  function toB64(buf) {
+    var b = new Uint8Array(buf), s = "";
+    for (var i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
+    return btoa(s);
+  }
+  function genKeys() {
+    var p = new Uint8Array(32), u = new Uint8Array(32);
+    crypto.getRandomValues(p); crypto.getRandomValues(u);
+    p[0] &= 248; p[31] &= 127; p[31] |= 64;
+    return { privateKey: toB64(p), publicKey: toB64(u) };
+  }
+
+  function validPrivateKey(k) {
+    return typeof k === "string" && /^[A-Za-z0-9+/]{43}=$/.test(k);
+  }
+
+  function repairStoredConfigs() {
+    var changed = false;
+    CONFIGS.forEach(function(c){
+      if (!c || !c.confText) return;
+      var key = c.privateKey || "";
+      var m = c.confText.match(/^PrivateKey\s*=\s*(.+)$/m);
+      if (m) key = m[1].trim();
+      if (!validPrivateKey(key)) {
+        var fresh = genKeys().privateKey;
+        c.privateKey = fresh;
+        c.confText = c.confText.replace(/^PrivateKey\s*=\s*.*$/m, "PrivateKey = " + fresh);
+        changed = true;
+      }
+    });
+    if (changed) save();
+  }
+  function pickEndpoint() {
+    return PANEL.endpoint;
+  }
+  function pickDns() {
+    var out = ["8.8.8.8","78.157.42.100","8.8.4.4","1.1.1.1"];
+    var bases = DNS_BASES && DNS_BASES.length ? DNS_BASES : ["1.1.","8.8.","9.9."];
+    var count = Math.max(8, Math.min(72, Number(PANEL.dnsCount)||72));
+    var seen = {}; out.forEach(function(ip){ seen[ip]=true; });
+    var g = 0;
+    while (out.length < count && g++ < 300) {
+      var b = bases[Math.floor(Math.random()*bases.length)];
+      var parts = String(b).replace(/[^0-9.]/g,"").split(".").filter(Boolean);
+      var ip = parts.length>=2 ? (parts[0]+"."+parts[1]+"."+(1+Math.floor(Math.random()*254))+"."+(1+Math.floor(Math.random()*254))) : "8.8.8.8";
+      if (!seen[ip]) { seen[ip]=true; out.push(ip); }
+    }
+    return out.join(", ");
+  }
+  function buildConf(name, days, users, gb) {
+    var keys = genKeys(), server = genKeys(), ep = pickEndpoint(), dns = pickDns();
+    var o2 = 10+Math.floor(Math.random()*200), o3 = Math.floor(Math.random()*250), hh = 2+Math.floor(Math.random()*200);
+    var hx = function(){ return Math.floor(Math.random()*0xffff).toString(16); };
+    var v6 = "fd42:"+hx()+":"+hx()+":"+hx()+"::"+hx();
+    var addr, allow;
+    if (PANEL.ipType === "ipv4") { addr = "Address = 10."+o2+"."+o3+"."+hh+"/32"; allow = "AllowedIPs = ::/0"; }
+    else if (PANEL.ipType === "ipv6") { addr = "Address = "+v6+"/128"; allow = "AllowedIPs = ::/0"; }
+    else { addr = "Address = 10."+o2+"."+o3+"."+hh+"/32, "+v6+"/128"; allow = "AllowedIPs = ::/0"; }
+    var safe = String(name).replace(/[^\x20-\x7E]/g,"_").slice(0,40);
+    return {
+      conf: ["# Gaming WireGuard | Owner: PUBGメAZVIX","# Name: "+safe,"# Volume: "+gb+"GB","# Time: "+days+" days","# Location: "+(PANEL.countryName||""),"# Owner: PUBGメAZVIX","","[Interface]","PrivateKey = "+keys.privateKey,addr,"DNS = "+dns,"MTU = 1280","","[Peer]","PublicKey = "+server.publicKey,"Endpoint = "+ep,allow,"PersistentKeepalive = 15",""].join("\n"),
+      endpoint: ep, dns: dns, privateKey: keys.privateKey
+    };
+  }
+
+  function downloadText(text, filename) {
+    text = String(text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim() + "\n";
+    filename = String(filename || "config").trim();
+    filename = filename.replace(/(\.txt)+$/gi, "").replace(/(\.conf)+$/gi, "") + ".conf";
+    
+    var blob = new Blob([text], { type: "application/octet-stream;charset=utf-8" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 1500);
+  }
+  function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText)
+      navigator.clipboard.writeText(text).then(function(){ toast("✅ کپی شد"); }).catch(function(){ fallback(text); });
+    else fallback(text);
+  }
+  function fallback(text) {
+    var ta = document.createElement("textarea"); ta.value = text; document.body.appendChild(ta); ta.select();
+    try { document.execCommand("copy"); toast("✅ کپی شد"); } catch(e) { toast("❌ کپی نشد"); }
+    document.body.removeChild(ta);
+  }
+
+  function updateStatus() {
+    var total = Number(PANEL.totalGB)||100;
+    var used = Math.max(0, Number(CONSUMED)||0);
+    var rem = Math.max(0, total - used);
+    var act = CONFIGS.filter(isActive).length;
+    document.getElementById("statusMeta").innerHTML =
+      "کشور: "+PANEL.flag+" "+PANEL.countryName+(PANEL.city?" ("+PANEL.city+")":"")+"<br>"+
+      "حجم: <strong style='color:#86efac'>"+used+"</strong> / "+total+" GB — باقی: <strong>"+rem+"</strong> GB<br>"+
+      "کانفیگ فعال: <strong>"+act+"</strong> / "+CONFIGS.length+"<br><span class='owner'>مالک PUBGメAZVIX</span>";
+    var pct = Math.min(100, Math.round((used/total)*100));
+    var fill = document.getElementById("quotaFill");
+    fill.style.width = pct+"%";
+    fill.style.background = pct>=95?"#ef4444":pct>=70?"#f59e0b":"#38bdf8";
+    var btn = document.getElementById("btnCreate");
+    if (btn) btn.disabled = rem <= 0;
+  }
+
+  function cfgButtons(cfg, i, on) {
+    return '<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px">'+
+      '<button type="button" class="btn '+(cfg.inSub!==false?"btn-d":"btn-s")+'" data-a="toggle" data-i="'+i+'">'+(cfg.inSub!==false?"🔴 غیرفعال":"🟢 فعال")+'</button>'+
+      '<button type="button" class="btn btn-p" data-a="dl" data-i="'+i+'"'+(on?"":" disabled")+'>⬇️ دانلود</button>'+
+      '<button type="button" class="btn btn-o" data-a="copy" data-i="'+i+'"'+(on?"":" disabled")+'>📋 کپی</button>'+
+      '<button type="button" class="btn btn-o" data-a="qr" data-i="'+i+'"'+(on?"":" disabled")+'>📱 QR</button>'+
+      '<button type="button" class="btn btn-g" data-a="sub" data-i="'+i+'">🔗 لینک ساب</button>'+
+      '<button type="button" class="btn btn-w" data-a="reset" data-i="'+i+'">🔄 آپدیت</button>'+
+      '<button type="button" class="btn btn-d" data-a="del" data-i="'+i+'">🗑️</button></div>';
+  }
+
+  function renderList() {
+    updateStatus();
+    var list = document.getElementById("cfgList");
+    if (!CONFIGS.length) { list.innerHTML = '<p style="color:var(--muted);text-align:center;padding:16px">هنوز کانفیگی نیست</p>'; return; }
+    var html = "";
+    CONFIGS.forEach(function(cfg, i) {
+      var on = isActive(cfg);
+      var left = remainingDays(cfg);
+      var st = on ? "فعال" : (cfg.inSub===false?"غیرفعال":(left<=0?"منقضی":"حجم تمام"));
+      html += '<div class="cfg" style="opacity:'+(on?1:0
