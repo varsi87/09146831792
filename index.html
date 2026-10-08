@@ -51,10 +51,10 @@ textarea{min-height:70px;font-family:monospace;font-size:0.75rem;direction:ltr;t
   </header>
 
   <div class="nav">
-    <button type="button" class="active" data-tab="dash">📊 داشبورد</button>
-    <button type="button" data-tab="create">➕ ساخت کانفیگ</button>
-    <button type="button" data-tab="configs">📂 کانفیگ‌ها</button>
-    <button type="button" data-tab="sub">🔗 لینک ساب</button>
+    <button type="button" class="active" onclick="switchTab('dash')">📊 داشبورد</button>
+    <button type="button" onclick="switchTab('create')">➕ ساخت کانفیگ</button>
+    <button type="button" onclick="switchTab('configs')">📂 کانفیگ‌ها</button>
+    <button type="button" onclick="switchTab('sub')">🔗 لینک ساب</button>
   </div>
 
   <div id="tab-dash" class="tab active">
@@ -66,94 +66,5 @@ textarea{min-height:70px;font-family:monospace;font-size:0.75rem;direction:ltr;t
     </div>
   </div>
 
-  <div id="tab-create" class="tab">
-    <div class="card">
-      <h2>➕ ساخت کانفیگ جدید</h2>
-      <div class="row">
-        <div><label>روز اعتبار</label><input type="number" id="cfgDays" min="1" max="365" value="30"/></div>
-        <div><label>کاربر</label><input type="number" id="cfgUsers" min="1" max="50" value="1"/></div>
-        <div><label>حجم (گیگ)</label><input type="number" id="cfgGB" min="1" max="1000" value="50"/></div>
-      </div>
-      <label>نام (اختیاری)</label>
-      <input type="text" id="cfgName" placeholder="کانفیگ گیمینگ پرسرعت"/>
-      <div style="margin-top:12px"><button type="button" class="btn btn-p" id="btnCreate">✨ ساخت + دانلود</button></div>
-    </div>
-  </div>
-
-  <div id="tab-configs" class="tab">
-    <div class="card">
-      <h2>📂 کانفیگ‌های ساخته‌شده</h2>
-      <div id="cfgList"></div>
-    </div>
-  </div>
-
-  <div id="tab-sub" class="tab">
-    <div class="card">
-      <h2>🔗 دریافت لینک ساب</h2>
-      <p class="meta">از این بخش برای هر کانفیگ یا همه کانفیگ‌های فعال، لینک ساب بگیرید.</p>
-      <label>لینک ساب https (آخرین ساخته‌شده)</label>
-      <input type="text" id="subHttps" readonly placeholder="هنوز ساخته نشده" style="direction:ltr;text-align:left;color:#86efac;font-family:monospace;font-size:0.85rem"/>
-      <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px">
-        <button type="button" class="btn btn-p" id="btnSubLatest">🚀 لینک آخرین کانفیگ</button>
-        <button type="button" class="btn btn-g" id="btnSubAll">📦 لینک همه فعال‌ها</button>
-        <button type="button" class="btn btn-o" id="btnCopySub">📋 کپی لینک</button>
-        <button type="button" class="btn btn-o" id="btnOpenSub">🌐 باز کردن صفحه ساب</button>
-      </div>
-      <div class="note">بعد از هر تغییر وضعیت یا مصرف، دوباره لینک بسازید تا صفحه ساب به‌روز باشد. مالک PUBGメAZVIX</div>
-      <div id="subCfgList" style="margin-top:14px"></div>
-    </div>
-  </div>
-</div>
-<div class="toast" id="toast"></div>
-
-<script>
-(function(){
-  var PANEL = {"id":"pnl_wg_v1","countryCode":"ir","countryName":"سرور اختصاصی","flag":"⚡","city":"WireGuard","ipType":"both","dnsMode":"dual","totalGB":1000,"endpoint":"s14.nahagebad.net:4653"};
-  var STORAGE_KEY = "wg_nahagebad_exp_v2";
-  var CONFIGS = [];
-  var CONSUMED = 0;
-  var LAST_SUB_URL = "";
-
-  function toast(msg) {
-    var t = document.getElementById("toast");
-    t.textContent = msg;
-    t.classList.add("show");
-    setTimeout(function(){ t.classList.remove("show"); }, 3000);
-  }
-
-  function switchTab(id) {
-    document.querySelectorAll(".nav button").forEach(function(b){
-      b.classList.toggle("active", b.getAttribute("data-tab") === id);
-    });
-    document.querySelectorAll(".tab").forEach(function(t){ t.classList.remove("active"); });
-    var el = document.getElementById("tab-" + id);
-    if (el) el.classList.add("active");
-    if (id === "dash") renderDash();
-    if (id === "configs") renderList();
-    if (id === "sub") renderSub();
-  }
-
-  document.querySelectorAll(".nav button").forEach(function(btn){
-    btn.addEventListener("click", function(){ switchTab(btn.getAttribute("data-tab")); });
-  });
-
-  function load() {
-    try {
-      var raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        var o = JSON.parse(raw);
-        CONFIGS = o.configs || [];
-        CONSUMED = Number(o.consumedGB) || 0;
-        LAST_SUB_URL = o.httpsSubUrl || "";
-      } else {
-        CONFIGS = [{
-          id: "cfg_default_naha",
-          name: "کانفیگ اصلی گیم و وب",
-          days: 30,
-          users: 1,
-          gb: 50,
-          usedGB: 0,
-          endpoint: "s14.nahagebad.net:4653",
-          dns: "1.1.1.1",
-          privateKey: "3h/10gUHRcjm/L4DykaUAu5FybZEHbnq/8GQB+mtCM=",
-          confText: "[Interface]\nPrivateKey = 3h/10gUHRcjm/L4DykaUAu5FybZEHbnq/8GQB+mtCM=\nAddress = 172.16.4.1
+  <div id="tab-create" class
+    
