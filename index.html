@@ -66,5 +66,315 @@ textarea{min-height:70px;font-family:monospace;font-size:0.75rem;direction:ltr;t
     </div>
   </div>
 
-  <div id="tab-create" class
-    
+  <div id="tab-create" class="tab">
+    <div class="card">
+      <h2>➕ ساخت کانفیگ جدید</h2>
+      <div class="row">
+        <div><label>روز اعتبار</label><input type="number" id="cfgDays" min="1" max="365" value="30"/></div>
+        <div><label>کاربر</label><input type="number" id="cfgUsers" min="1" max="50" value="1"/></div>
+        <div><label>حجم (گیگ)</label><input type="number" id="cfgGB" min="1" max="1000" value="50"/></div>
+      </div>
+      <label>نام (اختیاری)</label>
+      <input type="text" id="cfgName" placeholder="کانفیگ گیمینگ پرسرعت"/>
+      <div style="margin-top:12px"><button type="button" class="btn btn-p" onclick="createConfig()">✨ ساخت + دانلود</button></div>
+    </div>
+  </div>
+
+  <div id="tab-configs" class="tab">
+    <div class="card">
+      <h2>📂 کانفیگ‌های ساخته‌شده</h2>
+      <div id="cfgList"></div>
+    </div>
+  </div>
+
+  <div id="tab-sub" class="tab">
+    <div class="card">
+      <h2>🔗 دریافت لینک ساب</h2>
+      <p class="meta">از این بخش برای هر کانفیگ یا همه کانفیگ‌های فعال، لینک ساب بگیرید.</p>
+      <label>لینک ساب https (آخرین ساخته‌شده)</label>
+      <input type="text" id="subHttps" readonly placeholder="هنوز ساخته نشده" style="direction:ltr;text-align:left;color:#86efac;font-family:monospace;font-size:0.85rem"/>
+      <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px">
+        <button type="button" class="btn btn-p" onclick="createSubForLatest()">🚀 لینک آخرین کانفیگ</button>
+        <button type="button" class="btn btn-o" onclick="copySubLink()">📋 کپی لینک</button>
+        <button type="button" class="btn btn-o" onclick="openSubLink()">🌐 باز کردن صفحه ساب</button>
+      </div>
+      <div class="note">بعد از هر تغییر وضعیت یا مصرف، دوباره لینک بسازید تا صفحه ساب به‌روز باشد. مالک PUBGメAZVIX</div>
+      <div id="subCfgList" style="margin-top:14px"></div>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+var PANEL = {"id":"pnl_wg_v1","totalGB":1000,"endpoint":"s14.nahagebad.net:4653"};
+var STORAGE_KEY = "wg_nahagebad_exp_v3";
+var CONFIGS = [];
+var CONSUMED = 0;
+var LAST_SUB_URL = "";
+
+function toast(msg) {
+  var t = document.getElementById("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  setTimeout(function(){ t.classList.remove("show"); }, 3000);
+}
+
+function switchTab(id) {
+  var buttons = document.querySelectorAll(".nav button");
+  buttons.forEach(function(b, idx){
+    var target = ['dash', 'create', 'configs', 'sub'][idx];
+    b.classList.toggle("active", target === id);
+  });
+  document.querySelectorAll(".tab").forEach(function(t){ t.classList.remove("active"); });
+  var el = document.getElementById("tab-" + id);
+  if (el) el.classList.add("active");
+  if (id === "dash") renderDash();
+  if (id === "configs") renderList();
+  if (id === "sub") renderSub();
+}
+
+function loadData() {
+  try {
+    var raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      var o = JSON.parse(raw);
+      CONFIGS = o.configs || [];
+      CONSUMED = Number(o.consumedGB) || 0;
+      LAST_SUB_URL = o.httpsSubUrl || "";
+    } else {
+      CONFIGS = [{
+        id: "cfg_default_naha",
+        name: "کانفیگ اصلی گیم و وب",
+        days: 30,
+        gb: 50,
+        usedGB: 0,
+        confText: "[Interface]\nPrivateKey = 3h/10gUHRcjm/L4DykaUAu5FybZEHbnq/8GQB+mtCM=\nAddress = 172.16.4.170/32\nDNS = 1.1.1.1\n\n[Peer]\nPublicKey = 76qSLzpNLBRmM3H2aoWC+Wk7jokwVzh+QTBxSKFWgBk=\nEndpoint = s14.nahagebad.net:4653\nAllowedIPs = 0.0.0.0/0\nPersistentKeepalive = 25",
+        createdAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now()+30*86400000).toISOString(),
+        inSub: true,
+        httpsSubUrl: null
+      }];
+      CONSUMED = 50;
+      saveData();
+    }
+  } catch (e) { CONFIGS = []; CONSUMED = 0; }
+  CONFIGS.forEach(function(c){
+    if (typeof c.inSub === "undefined") c.inSub = true;
+    if (typeof c.usedGB === "undefined") c.usedGB = 0;
+  });
+}
+
+function saveData() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({ configs: CONFIGS, consumedGB: CONSUMED, httpsSubUrl: LAST_SUB_URL }));
+}
+
+function remainingDays(cfg) {
+  if (!cfg) return 0;
+  var endMs = new Date(cfg.expiresAt || (new Date(cfg.createdAt).getTime() + (Number(cfg.days)||30)*86400000)).getTime();
+  var left = Math.ceil((endMs - Date.now()) / 86400000);
+  return left > 0 ? left : 0;
+}
+
+function isActive(cfg) {
+  if (!cfg || cfg.inSub === false) return false;
+  return remainingDays(cfg) > 0;
+}
+
+function downloadText(text, filename) {
+  var a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text], { type: "application/octet-stream" }));
+  a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
+
+function copyText(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(function(){ toast("✅ کپی شد"); }).catch(function(){ fallbackCopy(text); });
+  } else { fallbackCopy(text); }
+}
+
+function fallbackCopy(text) {
+  var ta = document.createElement("textarea"); ta.value = text; document.body.appendChild(ta); ta.select();
+  try { document.execCommand("copy"); toast("✅ کپی شد"); } catch(e) { toast("❌ کپی نشد"); }
+  document.body.removeChild(ta);
+}
+
+function updateStatus() {
+  var total = Number(PANEL.totalGB)||1000;
+  var used = Math.max(0, Number(CONSUMED)||0);
+  var rem = Math.max(0, total - used);
+  var act = CONFIGS.filter(isActive).length;
+  document.getElementById("statusMeta").innerHTML =
+    "وضعیت سرور: <strong>"+PANEL.endpoint+"</strong><br>"+
+    "حجم کل: <strong style='color:#86efac'>"+used+"</strong> / "+total+" GB — باقیمانده: <strong>"+rem+"</strong> GB<br>"+
+    "کانفیگ فعال: <strong>"+act+"</strong> / "+CONFIGS.length+"<br><span class='owner'>مالک PUBGメAZVIX</span>";
+  var pct = Math.min(100, Math.round((used/total)*100));
+  var fill = document.getElementById("quotaFill");
+  fill.style.width = pct+"%";
+  fill.style.background = pct>=95?"#ef4444":pct>=70?"#f59e0b":"#38bdf8";
+}
+
+function renderList() {
+  updateStatus();
+  var list = document.getElementById("cfgList");
+  if (!CONFIGS.length) { list.innerHTML = '<p style="color:var(--muted);text-align:center;padding:16px">هنوز کانفیگی نیست</p>'; return; }
+  var html = "";
+  CONFIGS.forEach(function(cfg, i) {
+    var on = isActive(cfg);
+    var left = remainingDays(cfg);
+    var st = on ? "فعال" : (cfg.inSub===false?"غیرفعال":(left<=0?"منقضی":"پایان حجم"));
+    html += '<div class="cfg" style="opacity:'+(on?1:0.55)+'"><strong>⚡ '+(cfg.name||("#"+(i+1)))+'</strong> <span style="font-size:0.75rem;color:'+(on?"#86efac":"#fca5a5")+'">● '+st+'</span><br>'+
+      '<span style="font-size:0.82rem;color:var(--muted)">'+(cfg.days||0)+' روز • باقی: '+left+' • '+(cfg.gb||0)+' گیگ</span>'+
+      '<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px">'+
+      '<button type="button" class="btn '+(cfg.inSub!==false?"btn-d":"btn-s")+'" onclick="toggleCfg('+i+')">'+(cfg.inSub!==false?"🔴 غیرفعال":"🟢 فعال")+'</button>'+
+      '<button type="button" class="btn btn-p" onclick="downloadCfg('+i+')" '+(on?"":"disabled")+'>⬇️ دانلود</button>'+
+      '<button type="button" class="btn btn-o" onclick="copyCfg('+i+')" '+(on?"":"disabled")+'>📋 کپی</button>'+
+      '<button type="button" class="btn btn-g" onclick="makeSub('+i+')">🔗 ساب</button>'+
+      '<button type="button" class="btn btn-d" onclick="deleteCfg('+i+')">🗑️</button></div></div>';
+  });
+  list.innerHTML = html;
+}
+
+function renderDash() {
+  updateStatus();
+  var box = document.getElementById("dashList");
+  if (!CONFIGS.length) { box.innerHTML = '<p style="color:var(--muted)">کانفیگی نیست</p>'; return; }
+  var html = "";
+  CONFIGS.forEach(function(cfg, i) {
+    var on = isActive(cfg);
+    html += '<div class="cfg"><strong>'+(cfg.name||("#"+(i+1)))+'</strong> — '+(on?"فعال":"غیرفعال")+' | '+(cfg.gb||0)+'GB'+
+      '<br><button type="button" class="btn btn-g" onclick="makeSub('+i+')" style="margin-top:6px">🔗 دریافت لینک ساب</button></div>';
+  });
+  box.innerHTML = html;
+}
+
+function renderSub() {
+  updateStatus();
+  var el = document.getElementById("subHttps");
+  if (el) { el.value = LAST_SUB_URL || ""; }
+  var box = document.getElementById("subCfgList");
+  if (!CONFIGS.length) { box.innerHTML = '<p style="color:var(--muted)">ابتدا کانفیگ بسازید</p>'; return; }
+  var html = '<strong style="color:var(--accent);font-size:0.9rem">لینک ساب کانفیگ‌ها:</strong>';
+  CONFIGS.forEach(function(cfg, i) {
+    var on = isActive(cfg);
+    html += '<div class="cfg"><div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;align-items:center">'+
+      '<span>'+(cfg.name||("#"+(i+1)))+' — <span style="color:'+(on?"#86efac":"#fca5a5")+'">'+(on?"فعال":"غیرفعال")+'</span></span>'+
+      '<button type="button" class="btn btn-g" onclick="makeSub('+i+')">🔗 دریافت لینک</button></div>'+
+      (cfg.httpsSubUrl ? '<div style="margin-top:6px;font-size:0.72rem;direction:ltr;text-align:left;color:#86efac;word-break:break-all;font-family:monospace">'+cfg.httpsSubUrl+'</div>' : '')+'</div>';
+  });
+  box.innerHTML = html;
+}
+
+function createConfig() {
+  var days = parseInt(document.getElementById("cfgDays").value,10)||30;
+  var gb = parseInt(document.getElementById("cfgGB").value,10)||50;
+  var name = (document.getElementById("cfgName").value||"").trim() || "کانفیگ گیمینگ";
+  
+  var newConfText = "[Interface]\nPrivateKey = 3h/10gUHRcjm/L4DykaUAu5FybZEHbnq/8GQB+mtCM=\nAddress = 172.16.4.170/32\nDNS = 1.1.1.1\n\n[Peer]\nPublicKey = 76qSLzpNLBRmM3H2aoWC+Wk7jokwVzh+QTBxSKFWgBk=\nEndpoint = s14.nahagebad.net:4653\nAllowedIPs = 0.0.0.0/0\nPersistentKeepalive = 25";
+  
+  CONFIGS.unshift({
+    id: "cfg_" + Date.now().toString(36),
+    name: name,
+    days: days,
+    gb: gb,
+    usedGB: 0,
+    confText: newConfText,
+    createdAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + days * 86400000).toISOString(),
+    inSub: true,
+    httpsSubUrl: null
+  });
+  CONSUMED = (Number(CONSUMED)||0) + gb;
+  LAST_SUB_URL = "";
+  saveData();
+  renderList();
+  downloadText(newConfText, name.replace(/[\\/:*?"<>|]+/g,"_") + ".conf");
+  toast("✅ کانفیگ ساخته و دانلود شد");
+  document.getElementById("cfgName").value = "";
+  switchTab("configs");
+}
+
+function downloadCfg(i) {
+  var cfg = CONFIGS[i];
+  if (!cfg || !isActive(cfg)) { toast("⛔ غیرفعال است"); return; }
+  downloadText(cfg.confText, (cfg.name||"config").replace(/\s+/g,"_") + ".conf");
+  toast("⬇️ دانلود شد");
+}
+
+function copyCfg(i) {
+  var cfg = CONFIGS[i];
+  if (!cfg || !isActive(cfg)) { toast("⛔ غیرفعال است"); return; }
+  copyText(cfg.confText || "");
+}
+
+function toggleCfg(i) {
+  var cfg = CONFIGS[i];
+  if (!cfg) return;
+  cfg.inSub = !(cfg.inSub !== false);
+  cfg.httpsSubUrl = null;
+  LAST_SUB_URL = "";
+  saveData();
+  renderList();
+  toast(cfg.inSub !== false ? "✅ فعال شد" : "⏸ غیرفعال شد");
+}
+
+function deleteCfg(i) {
+  if (!confirm("حذف این کانفیگ؟")) return;
+  CONFIGS.splice(i, 1);
+  LAST_SUB_URL = "";
+  saveData();
+  renderList();
+  toast("🗑️ حذف شد");
+}
+
+async function makeSub(i) {
+  var cfg = CONFIGS[i];
+  if (!cfg) return;
+  toast("⏳ ساخت لینک ساب...");
+  var body = '<!DOCTYPE html><html lang="fa" dir="rtl"><head><meta charset="UTF-8"/><title>ساب</title><style>body{background:#111;color:#fff;font-family:sans-serif;padding:20px;direction:ltr}</style></head><body><h3>WireGuard Config</h3><pre>' + (cfg.confText || "") + '</pre></body></html>';
+  try {
+    var fd = new FormData();
+    fd.append("file", new Blob([body], {type:"text/html;charset=utf-8"}), "sub.html");
+    var res = await fetch("https://0x0.st", { method:"POST", body: fd });
+    if (res.ok) {
+      var url = (await res.text()).trim();
+      if (url.indexOf("http") === 0) {
+        cfg.httpsSubUrl = url;
+        LAST_SUB_URL = url;
+        saveData();
+        document.getElementById("subHttps").value = url;
+        copyText(url);
+        toast("✅ لینک ساب ساخته و کپی شد");
+        renderSub();
+        return;
+      }
+    }
+  } catch(e) {}
+  window.open(URL.createObjectURL(new Blob([body], {type:"text/html;charset=utf-8"})), "_blank");
+  toast("⚠ فایل محلی باز شد");
+}
+
+function createSubForLatest() {
+  if (!CONFIGS.length) { toast("کانفیگی نیست"); return; }
+  makeSub(0);
+}
+
+function copySubLink() {
+  var v = document.getElementById("subHttps").value;
+  if (!v) { toast("⚠ ابتدا لینک بسازید"); return; }
+  copyText(v);
+}
+
+function openSubLink() {
+  var v = document.getElementById("subHttps").value;
+  if (v) window.open(v, "_blank");
+  else toast("لینک موجود نیست");
+}
+
+loadData();
+renderList();
+toast("پنل آماده و دکمه‌ها فعال شد");
+</script>
+</body>
+  </html>
+  
