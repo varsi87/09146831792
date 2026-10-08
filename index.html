@@ -90,7 +90,7 @@ input,textarea{width:100%;padding:10px;background:#0a1020;border:1px solid var(-
     <div class="card">
       <h2>🔗 دریافت لینک ساب</h2>
       <p class="meta">از این بخش برای هر کانفیگ یا همه کانفیگ‌های فعال، لینک ساب بگیرید.</p>
-      <label>لینک ساب https (آخرین ساخته‌شده)</label>
+      <label>لینک ساب (آخرین ساخته‌شده)</label>
       <input type="text" id="subHttps" readonly placeholder="هنوز ساخته نشده" style="direction:ltr;text-align:left;color:#86efac;font-family:monospace;font-size:0.85rem"/>
       <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px">
         <button type="button" class="btn btn-p" id="btnSubLatest">🚀 لینک آخرین کانفیگ</button>
@@ -107,7 +107,7 @@ input,textarea{width:100%;padding:10px;background:#0a1020;border:1px solid var(-
 <script>
 (function(){
   var PANEL = {"id":"pnl_wg_v1","totalGB":1000,"endpoint":"s14.nahagebad.net:4653"};
-  var STORAGE_KEY = "wg_nahagebad_exp_v4";
+  var STORAGE_KEY = "wg_nahagebad_exp_v5";
   var CONFIGS = [];
   var CONSUMED = 0;
   var LAST_SUB_URL = "";
@@ -277,32 +277,19 @@ input,textarea{width:100%;padding:10px;background:#0a1020;border:1px solid var(-
     box.innerHTML = html;
   }
 
-  async function makeSub(i) {
+  function makeSub(i) {
     var cfg = CONFIGS[i];
     if (!cfg) return;
-    toast("⏳ ساخت لینک ساب...");
     var body = '<!DOCTYPE html><html lang="fa" dir="rtl"><head><meta charset="UTF-8"/><title>ساب</title><style>body{background:#111;color:#fff;font-family:sans-serif;padding:20px;direction:ltr}</style></head><body><h3>WireGuard Config</h3><pre>' + (cfg.confText || "") + '</pre></body></html>';
-    try {
-      var fd = new FormData();
-      fd.append("file", new Blob([body], {type:"text/html;charset=utf-8"}), "sub.html");
-      var res = await fetch("https://0x0.st", { method:"POST", body: fd });
-      if (res.ok) {
-        var url = (await res.text()).trim();
-        if (url.indexOf("http") === 0) {
-          cfg.httpsSubUrl = url;
-          LAST_SUB_URL = url;
-          save();
-          var subInput = document.getElementById("subHttps");
-          if (subInput) subInput.value = url;
-          copyText(url);
-          toast("✅ لینک ساب ساخته و کپی شد");
-          renderSub();
-          return;
-        }
-      }
-    } catch(e) {}
-    window.open(URL.createObjectURL(new Blob([body], {type:"text/html;charset=utf-8"})), "_blank");
-    toast("⚠ فایل محلی باز شد");
+    var url = "data:text/html;charset=utf-8," + encodeURIComponent(body);
+    cfg.httpsSubUrl = url;
+    LAST_SUB_URL = url;
+    save();
+    var subInput = document.getElementById("subHttps");
+    if (subInput) subInput.value = url;
+    copyText(url);
+    toast("✅ لینک ساب ساخته و کپی شد");
+    renderSub();
   }
 
   var btnCreate = document.getElementById("btnCreate");
@@ -381,6 +368,7 @@ input,textarea{width:100%;padding:10px;background:#0a1020;border:1px solid var(-
       if (!isActive(cfg)) { toast("⛔ غیرفعال است"); return; }
       copyText(cfg.confText || "");
     } else if (a === "toggle") {
+      cfg.inStatus = !(cfg.inSub !== false);
       cfg.inSub = !(cfg.inSub !== false);
       cfg.httpsSubUrl = null;
       LAST_SUB_URL = "";
@@ -401,7 +389,7 @@ input,textarea{width:100%;padding:10px;background:#0a1020;border:1px solid var(-
 
   load();
   renderList();
-  toast("پنل با موفقیت لود شد");
+  toast("پنل آماده است");
 })();
 </script>
 </body>
